@@ -2,20 +2,21 @@ import fs from 'node:fs/promises';
 async function fetchFinancialHeadlines(options) {
   const feeds = [
     { url: 'https://api-one.wallstcn.com/apiv1/content/articles/hot?period=all', kind: '热门文章' },
-    { url: 'https://api-one.wallstcn.com/apiv1/content/information-flow?channel=global-channel&accept=article&limit=30', kind: '近期资讯' },
+    { url: 'https://api-one.wallstcn.com/apiv1/content/information-flow?channel=global-channel&accept=article&limit=100', kind: '近期资讯' },
   ];
   const results = await Promise.allSettled(feeds.map(async (feed) => {
     const response = await globalThis.fetch(feed.url, options);
     if (!response.ok) throw Error('财经来源暂时不可用');
     const payload = await response.json();
     const records = feed.kind === '热门文章'
-      ? payload.data?.day_items
+      ? [...(payload.data?.day_items || []).map(row => ({...row, listKind: '当日热门'})),
+         ...(payload.data?.week_items || []).map(row => ({...row, listKind: '近7天热门'}))]
       : payload.data?.items?.filter(item => item.resource_type !== 'ad' && item.resource_type !== 'theme').map(item => item.resource);
     if (!Array.isArray(records)) throw Error('财经数据格式不可用');
     return records.filter(row => row && row.type !== 'live').map((row, index) => ({
       title: row.title,
       url: row.uri,
-      kind: feed.kind,
+      kind: row.listKind || feed.kind,
       rank: index + 1,
       pubDate: row.display_time ? row.display_time * 1000 : undefined,
       timeKind: 'retrieved',
