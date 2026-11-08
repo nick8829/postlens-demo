@@ -137,9 +137,13 @@ async function fetchFinancialHeadlines(options) {
     { url: 'https://api-one.wallstcn.com/apiv1/content/information-flow?channel=global-channel&accept=article&limit=100', kind: '近期资讯' },
   ];
   const results = await Promise.allSettled(feeds.map(async (feed) => {
-    const response = await globalThis.fetch(feed.url, options);
-    if (!response.ok) throw Error('财经来源暂时不可用');
-    const payload = await response.json();
+    const payload = await Promise.any([feed.url,feed.url.replace('api-one.wallstcn.com','api.wallstcn.com')].map(async endpoint=>{
+      const response=await globalThis.fetch(endpoint,options);
+      if(!response.ok)throw Error('财经来源暂时不可用');
+      const payload=await response.json();
+      if(!payload.data)throw Error('财经数据格式不可用');
+      return payload;
+    }));
     const records = feed.kind === '热门文章'
       ? [...(payload.data?.day_items || []).map(row => ({...row, listKind: '当日热门'})),
          ...(payload.data?.week_items || []).map(row => ({...row, listKind: '近7天热门'}))]
