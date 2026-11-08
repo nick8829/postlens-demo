@@ -1,4 +1,19 @@
 import fs from 'node:fs/promises';
+async function fetchCryptoHeadlines(options) {
+  try {
+    const response = await globalThis.fetch('https://cointelegraph.com/rss', options);
+    if (!response.ok) throw Error('Crypto feed unavailable');
+    const xml = await response.text();
+    const decode = value => value.replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/, '$1').replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (_, n) => String.fromCodePoint(n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n))).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+    const tag = (item,name) => decode(item.match(new RegExp('<'+name+'[^>]*>([\\s\\S]*?)</'+name+'>','i'))?.[1]?.trim() || '');
+    const items = [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/g)].map((match,index) => {
+      const item=match[1];return {title:tag(item,'title'),url:tag(item,'link'),pubDate:Date.parse(tag(item,'pubDate')),rank:index+1,kind:'近期加密资讯（英文）',timeKind:'retrieved',provider:'Cointelegraph RSS'};
+    }).filter(item => item.title && item.url.startsWith('https://cointelegraph.com/') && Number.isFinite(item.pubDate));
+    if(!items.length)throw Error('Empty crypto feed');
+    return Response.json({status:'success',updatedTime:Date.now(),items});
+  } catch { return Response.json({error:'加密资讯暂时无法读取'},{status:503}); }
+}
+
 async function fetchFinancialHeadlines(options) {
   const feeds = [
     { url: 'https://api-one.wallstcn.com/apiv1/content/articles/hot?period=all', kind: '热门文章' },
@@ -34,9 +49,12 @@ async function fetchFinancialHeadlines(options) {
   return Response.json({ status: 'success', updatedTime: Date.now(), items: [...items.values()] });
 }
 
-const response = await fetchFinancialHeadlines({signal: AbortSignal.timeout(15000)});
-if (!response.ok) throw Error('No financial feed returned data. Previous snapshot preserved.');
-const snapshot = await response.json();
 await fs.mkdir('data', {recursive: true});
-await fs.writeFile('data/financial-news.json', JSON.stringify(snapshot));
-console.log('Saved', snapshot.items.length, 'financial headlines at', new Date(snapshot.updatedTime).toISOString());
+let saved=0;
+await Promise.all([['financial-news.json',fetchFinancialHeadlines],['crypto-news.json',fetchCryptoHeadlines]].map(async ([filename,load])=>{
+ const response=await load({signal:AbortSignal.timeout(15000)});
+ if(!response.ok){console.error(filename+': feed unavailable; previous snapshot preserved');return;}
+ const snapshot=await response.json();await fs.writeFile('data/'+filename,JSON.stringify(snapshot));saved++;
+ console.log('Saved',snapshot.items.length,filename,'at',new Date(snapshot.updatedTime).toISOString());
+}));
+if(!saved)throw Error('All feeds unavailable. Previous snapshots preserved.');
