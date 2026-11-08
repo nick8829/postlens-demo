@@ -1,0 +1,34 @@
+name: Update financial headlines
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/update-financial-data.yml
+      - scripts/update-financial-data.mjs
+  workflow_dispatch:
+  schedule:
+    - cron: '13,43 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: financial-headlines
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/update-financial-data.mjs
+      - name: Save updated data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/financial-news.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Refresh financial headlines'
+          git pull --rebase origin main
+          git push origin HEAD:main
